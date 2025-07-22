@@ -1,0 +1,821 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Full Local EPUB Reader</title>
+    <style>
+        /* Basic CSS for a clean look, no external dependencies */
+        body {
+            font-family: 'Inter', sans-serif;
+            display: flex; /* Use flexbox for main layout */
+            margin: 0;
+            background-color: #f0f2f5;
+            color: #333;
+            height: 100vh; /* Make body fill viewport height */
+            overflow: hidden; /* Prevent body scroll, let panels scroll */
+        }
+
+        .toc-panel {
+            width: 280px; /* Fixed width for TOC */
+            background-color: #e0e6ed;
+            padding: 20px;
+            box-shadow: 2px 0 10px rgba(0, 0, 0, 0.1);
+            overflow-y: auto; /* Scroll for TOC if content is long */
+            flex-shrink: 0; /* Prevent shrinking */
+            display: flex;
+            flex-direction: column;
+        }
+
+        .toc-panel h2 {
+            color: #2c3e50;
+            margin-top: 0;
+            margin-bottom: 20px;
+            font-size: 1.6em;
+            text-align: center;
+        }
+
+        .toc-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .toc-list li {
+            margin-bottom: 5px;
+        }
+
+        .toc-list a {
+            display: block;
+            padding: 8px 10px;
+            text-decoration: none;
+            color: #444;
+            border-radius: 6px;
+            transition: background-color 0.2s ease, color 0.2s ease;
+            white-space: nowrap; /* Prevent text wrapping */
+            overflow: hidden; /* Hide overflow text */
+            text-overflow: ellipsis; /* Show ellipsis for overflow */
+        }
+
+        .toc-list a:hover {
+            background-color: #d1d8e0;
+            color: #000;
+        }
+
+        .toc-list a.active-chapter {
+            background-color: #007bff;
+            color: white;
+            font-weight: bold;
+        }
+
+        /* Indentation for nested TOC items */
+        .toc-level-1 > a { padding-left: 20px; }
+        .toc-level-2 > a { padding-left: 30px; }
+        .toc-level-3 > a { padding-left: 40px; }
+        /* Add more levels if needed */
+
+        .main-content-area {
+            flex-grow: 1; /* Take remaining space */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            overflow-y: auto; /* Allow main content area to scroll */
+        }
+
+        .container {
+            background-color: #ffffff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            max-width: 900px; /* Wider for reading */
+            width: 100%;
+            text-align: center;
+            margin-bottom: 20px;
+            flex-shrink: 0; /* Prevent container from shrinking */
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+            font-size: 2.2em;
+        }
+
+        p {
+            margin-bottom: 15px;
+            line-height: 1.6;
+        }
+
+        input[type="file"] {
+            display: none; /* Hide default file input */
+        }
+
+        .custom-file-upload {
+            display: inline-block;
+            padding: 12px 25px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1em;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            margin-top: 20px;
+            box-shadow: 0 2px 5px rgba(0, 123, 255, 0.3);
+        }
+
+        .custom-file-upload:hover {
+            background-color: #0056b3;
+            transform: translateY(-2px);
+        }
+
+        .file-name {
+            margin-top: 15px;
+            font-style: italic;
+            color: #555;
+        }
+
+        .book-info {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #e9ecef;
+            border-radius: 8px;
+            text-align: left;
+            font-size: 0.95em;
+            color: #444;
+        }
+
+        .book-info strong {
+            color: #2c3e50;
+        }
+
+        .navigation-buttons {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+        }
+
+        .navigation-buttons button {
+            padding: 10px 20px;
+            font-size: 1em;
+            background-color: #28a745;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            box-shadow: 0 2px 5px rgba(40, 167, 69, 0.3);
+        }
+
+        .navigation-buttons button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .navigation-buttons button:hover:not(:disabled) {
+            background-color: #218838;
+            transform: translateY(-2px);
+        }
+
+        #fullscreenBtn {
+            background-color: #6c757d; /* A different color for distinction */
+            box-shadow: 0 2px 5px rgba(108, 117, 125, 0.3);
+        }
+
+        #fullscreenBtn:hover:not(:disabled) {
+            background-color: #5a6268;
+        }
+
+        .book-content-frame {
+            border: 1px solid #ced4da;
+            border-radius: 8px;
+            width: 100%;
+            height: 600px; /* Fixed height for reading area */
+            margin-top: 20px;
+            background-color: white;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* Styles for fullscreen mode */
+        /* Target the main-content-area for fullscreen */
+        .main-content-area:-webkit-full-screen {
+            width: 100% !important;
+            height: 100% !important;
+            padding: 0 !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            background-color: #f0f2f5; /* Match body background */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .main-content-area:-moz-full-screen {
+            width: 100% !important;
+            height: 100% !important;
+            padding: 0 !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .main-content-area:-ms-fullscreen {
+            width: 100% !important;
+            height: 100% !important;
+            padding: 0 !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+        .main-content-area:fullscreen {
+            width: 100% !important;
+            height: 100% !important;
+            padding: 0 !important;
+            border-radius: 0 !important;
+            margin: 0 !important;
+            background-color: #f0f2f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Adjust elements within fullscreen mode */
+        .main-content-area:fullscreen .container {
+            max-width: 90%; /* Allow container to expand more in fullscreen */
+            height: auto;
+            margin-top: auto;
+            margin-bottom: auto;
+        }
+        .main-content-area:fullscreen .book-content-frame {
+            height: calc(100vh - 200px); /* Adjust iframe height to fill more of the fullscreen */
+            max-height: 80%; /* Ensure it doesn't take up too much vertical space */
+        }
+
+
+        .error-message {
+            color: #dc3545;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+
+        .loading-message {
+            color: #007bff;
+            margin-top: 15px;
+            font-weight: bold;
+        }
+
+        /* Responsive adjustments */
+        @media (max-width: 900px) {
+            body {
+                flex-direction: column; /* Stack TOC and content vertically */
+                height: auto; /* Allow body to scroll if needed */
+            }
+            .toc-panel {
+                width: 100%; /* TOC takes full width */
+                max-height: 200px; /* Limit TOC height */
+                box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+                border-bottom-left-radius: 12px;
+                border-bottom-right-radius: 12px;
+            }
+            .main-content-area {
+                padding: 15px;
+            }
+            .container {
+                padding: 20px;
+            }
+            h1 {
+                font-size: 1.8em;
+            }
+            .custom-file-upload {
+                padding: 10px 20px;
+                font-size: 0.9em;
+            }
+            .navigation-buttons {
+                flex-direction: column;
+                gap: 10px;
+            }
+            .book-content-frame {
+                height: 400px; /* Adjust height for smaller screens */
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="tocPanel" class="toc-panel">
+        <h2>Table of Contents</h2>
+        <ul id="tocList" class="toc-list">
+            <li style="text-align: center; color: #666;">Load an EPUB to see TOC</li>
+        </ul>
+    </div>
+    <div class="main-content-area" id="mainContentArea">
+        <div class="container">
+            <h1>Local EPUB Reader</h1>
+            <p>Select a local EPUB file to read it directly in your browser.</p>
+
+            <label for="epubFile" class="custom-file-upload">
+                Select EPUB File
+            </label>
+            <input type="file" id="epubFile" accept=".epub">
+            <div class="file-name" id="fileName">No file selected</div>
+
+            <div class="loading-message" id="loadingMessage"></div>
+            <div class="error-message" id="errorMessage"></div>
+
+            <div class="book-info" id="bookInfo" style="display: none;">
+                <p><strong>Title:</strong> <span id="bookTitle"></span></p>
+                <p><strong>Author:</strong> <span id="bookAuthor"></span></p>
+                <p><strong>Current Chapter:</strong> <span id="currentChapterDisplay"></span></p>
+            </div>
+
+            <div class="navigation-buttons">
+                <button id="prevChapterBtn" disabled>Previous Chapter</button>
+                <button id="nextChapterBtn" disabled>Next Chapter</button>
+                <button id="fullscreenBtn" disabled>Fullscreen</button>
+            </div>
+
+            <iframe id="bookContentFrame" class="book-content-frame" sandbox="allow-same-origin allow-scripts"></iframe>
+        </div>
+    </div>
+
+    <!-- Include JSZip library from the same directory -->
+    <script src="jszip.min.js"></script>
+
+    <script>
+        // Get references to DOM elements
+        const epubFileInput = document.getElementById('epubFile');
+        const fileNameDisplay = document.getElementById('fileName');
+        const loadingMessageDisplay = document.getElementById('loadingMessage');
+        const errorMessageDisplay = document.getElementById('errorMessage');
+        const bookInfoDiv = document.getElementById('bookInfo');
+        const bookTitleSpan = document.getElementById('bookTitle');
+        const bookAuthorSpan = document.getElementById('bookAuthor');
+        const currentChapterDisplaySpan = document.getElementById('currentChapterDisplay');
+        const prevChapterBtn = document.getElementById('prevChapterBtn');
+        const nextChapterBtn = document.getElementById('nextChapterBtn');
+        const fullscreenBtn = document.getElementById('fullscreenBtn');
+        const bookContentFrame = document.getElementById('bookContentFrame');
+        const tocList = document.getElementById('tocList'); // New TOC list element
+        const mainContentArea = document.getElementById('mainContentArea'); // New main content area for fullscreen
+
+        // Global state for the EPUB reader
+        let epubFiles = {}; // Stores {epubPath: {content: Blob/Text, type: mimeType, objectURL: blobURL}}
+        let manifest = {}; // Maps ID to {href, media-type}
+        let spine = [];    // Array of chapter IDs in reading order
+        let currentChapterIndex = 0;
+        let opfBasePath = ""; // Base directory of the OPF file, used for resolving relative paths
+        let ncxPath = ""; // Path to the NCX file for TOC
+
+        // Function to display messages
+        function displayMessage(element, message, type = 'info') {
+            element.textContent = message;
+            element.className = `${type}-message`; // Apply class for styling (e.g., error-message, loading-message)
+        }
+
+        // Helper to escape HTML for display in <pre> tags (not used for iframe content, but good to keep)
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+
+        /**
+         * Resolves a relative path within the EPUB's internal structure.
+         * @param {string} currentEpubPath The full internal path of the file making the reference (e.g., "OEBPS/chapter1.xhtml").
+         * @param {string} relativePath The relative path to resolve (e.g., "../images/pic.jpg", "style.css").
+         * @returns {string} The full absolute internal EPUB path (e.g., "OEBPS/images/pic.jpg").
+         */
+        function resolveEpubPath(currentEpubPath, relativePath) {
+            const currentDirParts = currentEpubPath.split('/');
+            currentDirParts.pop(); // Remove the file name to get the directory
+
+            const pathParts = relativePath.split('/');
+            let resolvedParts = [...currentDirParts];
+
+            for (const part of pathParts) {
+                if (part === '..') {
+                    resolvedParts.pop();
+                } else if (part !== '.' && part !== '') {
+                    resolvedParts.push(part);
+                }
+            }
+            return resolvedParts.join('/');
+        }
+
+        /**
+         * Parses XML string and returns a DOM document.
+         * @param {string} xmlString The XML content as a string.
+         * @returns {Document} The parsed XML DOM document.
+         */
+        function parseXml(xmlString) {
+            const parser = new DOMParser();
+            return parser.parseFromString(xmlString, "text/xml");
+        }
+
+        /**
+         * Recursively renders navigation points from NCX into the TOC list.
+         * @param {HTMLElement} parentElement The DOM element to append children to.
+         * @param {NodeListOf<Element>} navPoints The navPoint XML elements.
+         * @param {number} level Current indentation level.
+         */
+        function renderNavPoints(parentElement, navPoints, level = 0) {
+            navPoints.forEach(navPoint => {
+                const li = document.createElement('li');
+                li.classList.add(`toc-level-${level}`); // For styling indentation
+
+                const a = document.createElement('a');
+                const navLabel = navPoint.querySelector('navLabel > text');
+                a.textContent = navLabel ? navLabel.textContent : 'Untitled Chapter';
+
+                const contentElement = navPoint.querySelector('content');
+                if (contentElement) {
+                    const contentSrc = contentElement.getAttribute('src');
+                    // Resolve path relative to NCX file for accurate chapter loading
+                    const resolvedContentPath = resolveEpubPath(ncxPath, contentSrc);
+
+                    // Find the corresponding itemref in the spine
+                    let chapterIndex = -1;
+                    for (let i = 0; i < spine.length; i++) {
+                        const itemrefId = spine[i];
+                        const item = manifest[itemrefId];
+                        // Compare resolved path with manifest hrefs
+                        // Note: We need to resolve manifest.href relative to opfBasePath
+                        if (item && resolveEpubPath(opfBasePath + "dummy.opf", item.href) === resolvedContentPath) {
+                            chapterIndex = i;
+                            break;
+                        }
+                    }
+
+                    if (chapterIndex !== -1) {
+                        a.href = "#"; // Prevent actual navigation
+                        a.dataset.chapterIndex = chapterIndex;
+                        a.addEventListener('click', (e) => {
+                            e.preventDefault();
+                            displayChapter(parseInt(e.target.dataset.chapterIndex, 10));
+                        });
+                    } else {
+                        a.style.opacity = 0.6; // Dim unresolvable links
+                        a.title = `Chapter content not found or not in spine: ${contentSrc}`;
+                    }
+                } else {
+                    a.style.opacity = 0.6;
+                    a.title = "No content source defined for this TOC entry.";
+                }
+
+                li.appendChild(a);
+                parentElement.appendChild(li);
+
+                // Recursively render child navPoints
+                const childNavPoints = navPoint.querySelectorAll(':scope > navPoint'); // Direct children only
+                if (childNavPoints.length > 0) {
+                    const ul = document.createElement('ul');
+                    li.appendChild(ul);
+                    renderNavPoints(ul, Array.from(childNavPoints), level + 1);
+                }
+            });
+        }
+
+
+        /**
+         * Processes the selected EPUB file.
+         * @param {File} file The EPUB file selected by the user.
+         */
+        async function processEpub(file) {
+            // Reset global state
+            epubFiles = {};
+            manifest = {};
+            spine = [];
+            currentChapterIndex = 0;
+            opfBasePath = "";
+            ncxPath = "";
+
+            bookInfoDiv.style.display = 'none';
+            bookTitleSpan.textContent = '';
+            bookAuthorSpan.textContent = '';
+            currentChapterDisplaySpan.textContent = '';
+            prevChapterBtn.disabled = true;
+            nextChapterBtn.disabled = true;
+            fullscreenBtn.disabled = true;
+            bookContentFrame.srcdoc = ''; // Clear iframe content
+            tocList.innerHTML = '<li style="text-align: center; color: #666;">Loading TOC...</li>'; // Clear and show loading for TOC
+
+            displayMessage(loadingMessageDisplay, 'Reading and processing EPUB file...', 'loading');
+            displayMessage(errorMessageDisplay, '');
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+
+                // Step 1: Extract all files and create object URLs
+                for (const relativePath in zip.files) {
+                    const zipEntry = zip.files[relativePath];
+                    if (!zipEntry.dir) {
+                        const mimeType = zipEntry.name.endsWith('.xhtml') || zipEntry.name.endsWith('.html') ? 'application/xhtml+xml' :
+                                         zipEntry.name.endsWith('.css') ? 'text/css' :
+                                         zipEntry.name.endsWith('.jpg') || zipEntry.name.endsWith('.jpeg') ? 'image/jpeg' :
+                                         zipEntry.name.endsWith('.png') ? 'image/png' :
+                                         zipEntry.name.endsWith('.gif') ? 'image/gif' :
+                                         zipEntry.name.endsWith('.svg') ? 'image/svg+xml' :
+                                         zipEntry.name.endsWith('.ttf') || zipEntry.name.endsWith('.otf') ? 'font/opentype' : // Basic font support
+                                         'application/octet-stream'; // Default for unknown types
+
+                        const content = await zipEntry.async('blob');
+                        const objectURL = URL.createObjectURL(content);
+
+                        epubFiles[relativePath] = {
+                            content: content,
+                            text: zipEntry.name.match(/\.(xhtml|html|css|xml)$/) ? await zipEntry.async('text') : null,
+                            type: mimeType,
+                            objectURL: objectURL
+                        };
+                    }
+                }
+
+                // Step 2: Find and parse META-INF/container.xml
+                const containerXmlEntry = zip.file('META-INF/container.xml');
+                if (!containerXmlEntry) {
+                    throw new Error('EPUB is missing META-INF/container.xml');
+                }
+                const containerXmlContent = await containerXmlEntry.async('text');
+                const containerDoc = parseXml(containerXmlContent);
+                const rootfileElement = containerDoc.querySelector('rootfile');
+                if (!rootfileElement) {
+                    throw new Error('Could not find rootfile in container.xml');
+                }
+                const opfPath = rootfileElement.getAttribute('full-path');
+                if (!opfPath) {
+                    throw new Error('Could not find full-path attribute in rootfile.');
+                }
+
+                // Determine the base path for OPF-relative URLs
+                opfBasePath = opfPath.substring(0, opfPath.lastIndexOf('/') + 1);
+
+                // Step 3: Find and parse the OPF file
+                const opfEntry = zip.file(opfPath);
+                if (!opfEntry) {
+                    throw new Error(`Could not find OPF file at ${opfPath}`);
+                }
+                const opfContent = await opfEntry.async('text');
+                const opfDoc = parseXml(opfContent);
+
+                // Extract book metadata (title, author)
+                const titleElement = opfDoc.querySelector('metadata > dc\\:title, metadata > title');
+                const authorElement = opfDoc.querySelector('metadata > dc\\:creator, metadata > creator');
+                bookTitleSpan.textContent = titleElement ? titleElement.textContent : 'Unknown Title';
+                bookAuthorSpan.textContent = authorElement ? authorElement.textContent : 'Unknown Author';
+                bookInfoDiv.style.display = 'block';
+
+                // Populate manifest
+                const itemElements = opfDoc.querySelectorAll('manifest > item');
+                itemElements.forEach(item => {
+                    manifest[item.getAttribute('id')] = {
+                        href: item.getAttribute('href'),
+                        mediaType: item.getAttribute('media-type')
+                    };
+                });
+
+                // Populate spine
+                const itemrefElements = opfDoc.querySelectorAll('spine > itemref');
+                itemrefElements.forEach(itemref => {
+                    spine.push(itemref.getAttribute('idref'));
+                });
+
+                if (spine.length === 0) {
+                    throw new Error('No readable content found in EPUB spine.');
+                }
+
+                // Step 4: Find and parse the NCX file for TOC
+                const ncxId = opfDoc.querySelector('spine').getAttribute('toc'); // Get TOC ID from spine
+                const ncxInfo = manifest[ncxId];
+                if (!ncxInfo) {
+                    // This is not a critical error, some EPUBs might not have a formal NCX
+                    console.warn('Could not find NCX (Table of Contents) file in manifest. TOC will be empty.');
+                    tocList.innerHTML = '<li style="text-align: center; color: #666;">No Table of Contents found.</li>';
+                } else {
+                    ncxPath = resolveEpubPath(opfBasePath + "dummy.opf", ncxInfo.href);
+                    const ncxFile = epubFiles[ncxPath];
+                    if (!ncxFile || !ncxFile.text) {
+                        console.warn(`NCX file at ${ncxPath} not found or not readable. TOC will be empty.`);
+                        tocList.innerHTML = '<li style="text-align: center; color: #666;">NCX file not found or readable.</li>';
+                    } else {
+                        const ncxDoc = parseXml(ncxFile.text);
+                        const navMap = ncxDoc.querySelector('navMap');
+                        tocList.innerHTML = ''; // Clear previous TOC
+                        if (navMap) {
+                            renderNavPoints(tocList, Array.from(navMap.children));
+                        } else {
+                            tocList.innerHTML = '<li style="text-align: center; color: #666;">No navMap found in NCX.</li>';
+                        }
+                    }
+                }
+
+                // Initial display of the first chapter
+                await displayChapter(0);
+                fullscreenBtn.disabled = false; // Enable fullscreen button after content is loaded
+                displayMessage(loadingMessageDisplay, ''); // Clear loading message
+
+            } catch (error) {
+                displayMessage(errorMessageDisplay, `Error loading EPUB: ${error.message}`, 'error');
+                console.error("Error loading EPUB:", error);
+                displayMessage(loadingMessageDisplay, ''); // Clear loading message
+                tocList.innerHTML = '<li style="text-align: center; color: #dc3545;">Failed to load TOC.</li>';
+            }
+        }
+
+        /**
+         * Displays a specific chapter in the iframe.
+         * @param {number} index The index of the chapter in the spine.
+         */
+        async function displayChapter(index) {
+            if (index < 0 || index >= spine.length) {
+                return; // Out of bounds
+            }
+
+            // Remove active class from previous chapter link
+            const oldActive = tocList.querySelector('.active-chapter');
+            if (oldActive) {
+                oldActive.classList.remove('active-chapter');
+            }
+
+            currentChapterIndex = index;
+            const chapterId = spine[currentChapterIndex];
+            const chapterInfo = manifest[chapterId];
+
+            if (!chapterInfo) {
+                displayMessage(errorMessageDisplay, `Chapter with ID "${chapterId}" not found in manifest.`, 'error');
+                bookContentFrame.srcdoc = `<p style="color:red;">Error: Chapter content not found.</p>`;
+                return;
+            }
+
+            // Construct the full internal EPUB path for the chapter XHTML
+            // The href in manifest is relative to the OPF file.
+            const chapterEpubPath = resolveEpubPath(opfBasePath + "temp.opf", chapterInfo.href); // "temp.opf" is a dummy file name for path resolution
+
+            const chapterFile = epubFiles[chapterEpubPath];
+
+            if (!chapterFile || !chapterFile.text) {
+                displayMessage(errorMessageDisplay, `Content for chapter "${chapterInfo.href}" not found or not readable.`, 'error');
+                bookContentFrame.srcdoc = `<p style="color:red;">Error: Chapter content file not found or could not be read.</p>`;
+                return;
+            }
+
+            // Update chapter display
+            currentChapterDisplaySpan.textContent = `${currentChapterIndex + 1} / ${spine.length}`;
+
+            // Add active class to current chapter link in TOC
+            const currentTocLink = tocList.querySelector(`a[data-chapter-index="${currentChapterIndex}"]`);
+            if (currentTocLink) {
+                currentTocLink.classList.add('active-chapter');
+                // Scroll TOC to make current chapter visible if needed
+                currentTocLink.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+
+
+            // Prepare the XHTML content for injection
+            let chapterHtmlContent = chapterFile.text;
+
+            // Create a temporary DOM to rewrite relative paths
+            const parser = new DOMParser();
+            const tempDoc = parser.parseFromString(chapterHtmlContent, "application/xml"); // Use XML parser for XHTML
+
+            // Get the base directory of the current chapter XHTML file for relative path resolution
+            const currentChapterDir = chapterEpubPath.substring(0, chapterEpubPath.lastIndexOf('/') + 1);
+
+            // Rewrite image sources
+            tempDoc.querySelectorAll('img').forEach(img => {
+                const src = img.getAttribute('src');
+                if (src && !src.startsWith('http://') && !src.startsWith('https://') && !src.startsWith('data:')) {
+                    const resolvedPath = resolveEpubPath(currentChapterDir + 'dummy.xhtml', src); // dummy.xhtml for path resolution
+                    const objectURL = epubFiles[resolvedPath] ? epubFiles[resolvedPath].objectURL : null;
+                    if (objectURL) {
+                        img.setAttribute('src', objectURL);
+                    } else {
+                        console.warn(`Could not resolve image path: ${src} (resolved to ${resolvedPath})`);
+                        // Optionally set a placeholder or remove the image
+                        img.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Crect width='100' height='100' fill='%23ccc'/%3E%3Ctext x='50' y='50' font-family='Arial' font-size='12' fill='%23666' text-anchor='middle' alignment-baseline='middle'%3EImage Not Found%3C/text%3E%3C/svg%3E";
+                    }
+                }
+            });
+
+            // Rewrite stylesheet links
+            tempDoc.querySelectorAll('link[rel="stylesheet"]').forEach(link => {
+                const href = link.getAttribute('href');
+                if (href && !href.startsWith('http://') && !href.startsWith('https://')) {
+                    const resolvedPath = resolveEpubPath(currentChapterDir + 'dummy.xhtml', href);
+                    const objectURL = epubFiles[resolvedPath] ? epubFiles[resolvedPath].objectURL : null;
+                    if (objectURL) {
+                        link.setAttribute('href', objectURL);
+                    } else {
+                        console.warn(`Could not resolve CSS path: ${href} (resolved to ${resolvedPath})`);
+                        link.remove(); // Remove broken stylesheet
+                    }
+                }
+            });
+
+            // Rewrite anchor links (for internal navigation within the book)
+            // This is a simplified internal link handling.
+            // A full implementation would need to map these links to other chapters or sections.
+            // For now, we'll just make them point to their blob URLs if they are valid internal files.
+            tempDoc.querySelectorAll('a').forEach(a => {
+                const href = a.getAttribute('href');
+                if (href && !href.startsWith('http://') && !href.startsWith('https://') && !href.startsWith('#')) {
+                    const resolvedPath = resolveEpubPath(currentChapterDir + 'dummy.xhtml', href);
+                    const objectURL = epubFiles[resolvedPath] ? epubFiles[resolvedPath].objectURL : null;
+                    if (objectURL) {
+                        a.setAttribute('href', objectURL);
+                        a.setAttribute('target', '_blank'); // Open internal links in new tab to avoid breaking reader
+                    } else {
+                        console.warn(`Could not resolve internal link: ${href} (resolved to ${resolvedPath})`);
+                    }
+                }
+            });
+
+            // Get the modified HTML string
+            chapterHtmlContent = new XMLSerializer().serializeToString(tempDoc);
+
+            // Inject the modified HTML into the iframe
+            bookContentFrame.srcdoc = chapterHtmlContent;
+
+            // Enable/disable navigation buttons
+            prevChapterBtn.disabled = currentChapterIndex === 0;
+            nextChapterBtn.disabled = currentChapterIndex === spine.length - 1;
+        }
+
+        // Event listeners
+        epubFileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            fileNameDisplay.textContent = file ? file.name : 'No file selected';
+            if (file) {
+                processEpub(file);
+            }
+        });
+
+        prevChapterBtn.addEventListener('click', () => {
+            if (currentChapterIndex > 0) {
+                displayChapter(currentChapterIndex - 1);
+            }
+        });
+
+        nextChapterBtn.addEventListener('click', () => {
+            if (currentChapterIndex < spine.length - 1) {
+                displayChapter(currentChapterIndex + 1);
+            }
+        });
+
+        // Fullscreen button click handler
+        fullscreenBtn.addEventListener('click', () => {
+            // Request fullscreen on the main content area
+            if (mainContentArea.requestFullscreen) {
+                mainContentArea.requestFullscreen();
+            } else if (mainContentArea.mozRequestFullScreen) { /* Firefox */
+                mainContentArea.mozRequestFullScreen();
+            } else if (mainContentArea.webkitRequestFullscreen) { /* Chrome, Safari and Opera */
+                mainContentArea.webkitRequestFullscreen();
+            } else if (mainContentArea.msRequestFullscreen) { /* IE/Edge */
+                mainContentArea.msRequestFullscreen();
+            }
+        });
+
+        // Keyboard navigation for chapters
+        document.addEventListener('keydown', (e) => {
+            if (spine.length === 0) return; // No book loaded
+
+            if (e.key === 'ArrowRight') {
+                if (currentChapterIndex < spine.length - 1) {
+                    displayChapter(currentChapterIndex + 1);
+                    e.preventDefault(); // Prevent default browser scroll
+                }
+            } else if (e.key === 'ArrowLeft') {
+                if (currentChapterIndex > 0) {
+                    displayChapter(currentChapterIndex - 1);
+                    e.preventDefault(); // Prevent default browser scroll
+                }
+            }
+        });
+
+        // Clean up object URLs when the page is unloaded to prevent memory leaks
+        window.addEventListener('beforeunload', () => {
+            for (const path in epubFiles) {
+                if (epubFiles[path].objectURL) {
+                    URL.revokeObjectURL(epubFiles[path].objectURL);
+                }
+            }
+        });
+    </script>
+</body>
+</html>
